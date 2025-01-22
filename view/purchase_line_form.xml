@@ -1,0 +1,6 @@
+<data>
+    <xpath expr="/form/notebook/page[@id='general']/separator[@name='description']" position="before">
+        <label name="charge_free"/>
+        <field name="charge_free"/>
+    </xpath>
+</data>
