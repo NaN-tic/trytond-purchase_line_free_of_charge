@@ -1,5 +1,5 @@
 <data>
     <xpath expr="/tree/field[@name='amount']" position="before">
-        <field name="charge_free"/>
+        <field name="free_of_charge"/>
     </xpath>
 </data>

@@ -9,6 +9,6 @@ class Move(metaclass=PoolMeta):
         PurchaseLine = Pool().get('purchase.line')
         for move in moves:
             if move.origin and isinstance(move.origin, PurchaseLine):
-                if move.origin.charge_free and move.product:
+                if move.origin.free_of_charge and move.product:
                     move.unit_price = move.product.cost_price
         super().do(moves)

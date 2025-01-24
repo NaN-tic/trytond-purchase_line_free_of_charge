@@ -2,6 +2,6 @@
 msgid ""
 msgstr "Content-Type: text/plain; charset=utf-8\n"
 
-msgctxt "field:purchase.line,charge_free:"
+msgctxt "field:purchase.line,free_of_charge:"
 msgid "Free of Charge"
 msgstr "Sin cargo"
