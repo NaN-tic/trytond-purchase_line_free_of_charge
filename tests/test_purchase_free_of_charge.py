@@ -104,20 +104,14 @@ class Test(unittest.TestCase):
         purchase.invoice_method = 'shipment'
         purchase_line = purchase.lines.new()
         purchase_line.product = product
-        purchase_line.unit_price = Decimal('20.0000')
-        purchase_line.quantity = 5.0
-        purchase_line = purchase.lines.new()
-        purchase_line.product = product
-        purchase_line.unit_price = Decimal('20.0000')
-        purchase_line.quantity = 5.0
-        purchase_line.free_of_charge = True
+        purchase_line.quantity = 10.0
+        purchase_line.unit_price = Decimal('10.0000')
         purchase.click('quote')
         purchase.click('confirm')
         self.assertEqual(purchase.state, 'processing')
-        # First one is a regular purchase line. Second one is free of charge.
-        self.assertEqual((purchase.lines[0].unit_price, purchase.lines[1].unit_price), (Decimal('20.0000'), Decimal('0.0000')))
+        self.assertEqual((purchase.lines[0].unit_price), (Decimal('10.0000')))
 
-        # Validate Shipments
+        # Validate Shipment
         Move = Model.get('stock.move')
         ShipmentIn = Model.get('stock.shipment.in')
         shipment = ShipmentIn()
@@ -127,7 +121,36 @@ class Test(unittest.TestCase):
             incoming_move = Move(id=move.id)
             shipment.incoming_moves.append(incoming_move)
         shipment.save()
-        self.assertEqual((shipment.incoming_moves[0].unit_price, shipment.incoming_moves[1].unit_price), (Decimal('20.0000'), Decimal('5.0000')))
+        self.assertEqual((shipment.incoming_moves[0].unit_price), (Decimal('10.0000')))
+        product.reload()
+        shipment.click('receive')
+        self.assertEqual(product.cost_price, Decimal('10.0000'))
+        shipment.click('do')
+
+        #Create purchase with free of charge line and its in-shipment from its moves
+        purchase = Purchase()
+        purchase.party = supplier
+        purchase.payment_term = payment_term
+        purchase.invoice_method = 'shipment'
+        purchase_line = purchase.lines.new()
+        purchase_line.product = product
+        purchase_line.quantity = 5.0
+        purchase_line.unit_price = Decimal('10.0000')
+        purchase_line.free_of_charge = True
+        purchase.click('quote')
+        purchase.click('confirm')
+        self.assertEqual(purchase.lines[0].unit_price, Decimal('0.0000'))
+
+        shipment = ShipmentIn()
+        shipment.supplier = supplier
+        for move in purchase.moves:
+            incoming_move = Move(id=move.id)
+            shipment.incoming_moves.append(incoming_move)
+        shipment.save()
+        #Move unit price is set to product's cost price
+        self.assertEqual((shipment.incoming_moves[0].unit_price), (Decimal('10.0000')))
+        product.reload()
+
 
         #Create a new purchase and receive another shipment inbetween so that the cost price is updated.
         purchase2 = Purchase()
@@ -137,7 +160,7 @@ class Test(unittest.TestCase):
         purchase_line = purchase2.lines.new()
         purchase_line.product = product
         purchase_line.quantity = 10.0
-        purchase_line.unit_price = Decimal('10.0000')
+        purchase_line.unit_price = Decimal('20.0000')
         purchase2.click('quote')
         purchase2.click('confirm')
 
@@ -149,23 +172,24 @@ class Test(unittest.TestCase):
             shipment2.incoming_moves.append(incoming_move)
         shipment2.save()
         shipment2.click('receive')
-        self.assertEqual(product.cost_price, Decimal('10.000'))
-
-        # First move comes from regular purchase line. Second move comes from free of charge purchase line.
-        self.assertEqual(shipment.origins, purchase.rec_name)
-        self.assertEqual((shipment.incoming_moves[0].unit_price, shipment.incoming_moves[1].unit_price), (Decimal('20.0000'), Decimal('5.0000')))
-        shipment.click('receive')
-        self.assertEqual((shipment.incoming_moves[0].unit_price, shipment.incoming_moves[1].unit_price), (Decimal('20.0000'), Decimal('10.0000')))
         product.reload()
-        self.assertEqual(product.cost_price, Decimal('11.2500'))
+        self.assertEqual(product.cost_price, Decimal('15.000'))
+        shipment2.click('do')
+
+        #Go back to free of charge shipment, and receive it.
+        shipment.click('receive')
+        #Move unit price is updated to product's cost price on reception, as to not alter the product's cost price average.
+        self.assertEqual((shipment.incoming_moves[0].unit_price), (Decimal('15.0000')))
+        product.reload()
+        self.assertEqual(product.cost_price, Decimal('15.0000'))
         shipment.click('do')
 
         purchase.reload()
         self.assertEqual(purchase.shipment_state, 'received')
-        self.assertEqual(len(purchase.shipments), 1)
 
-        # Check invoice lines, and free of charge line has not been generated.
-        move = shipment.incoming_moves[0]
-        free_of_charge_move = shipment.incoming_moves[1]
-        self.assertEqual(len(move.invoice_lines), 1)
+        # Check invoice lines, and free of charge line has not been generated. Whereas inbetween shipment has been invoiced as usual.
+        free_of_charge_move = shipment.incoming_moves[0]
         self.assertEqual(len(free_of_charge_move.invoice_lines), 0)
+
+        regular_move = shipment2.incoming_moves[0]
+        self.assertEqual(len(regular_move.invoice_lines), 1)
