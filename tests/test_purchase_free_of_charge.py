@@ -84,11 +84,12 @@ class Test(unittest.TestCase):
         template.type = 'goods'
         template.purchasable = True
         template.list_price = Decimal('10')
+        template.cost_price_method = 'average'
         template.account_category = account_category
+        product, = template.products
+        product.cost_price = Decimal('5')
         template.save()
         product, = template.products
-        product.cost_price = Decimal('10.0000')
-        product.save()
 
         # Create payment term
         payment_term = create_payment_term()
@@ -103,18 +104,18 @@ class Test(unittest.TestCase):
         purchase.invoice_method = 'shipment'
         purchase_line = purchase.lines.new()
         purchase_line.product = product
-        purchase_line.unit_price = Decimal('5.0000')
+        purchase_line.unit_price = Decimal('20.0000')
         purchase_line.quantity = 5.0
         purchase_line = purchase.lines.new()
         purchase_line.product = product
-        purchase_line.unit_price = Decimal('5.0000')
-        purchase_line.quantity = 2.0
+        purchase_line.unit_price = Decimal('20.0000')
+        purchase_line.quantity = 5.0
         purchase_line.free_of_charge = True
         purchase.click('quote')
         purchase.click('confirm')
         self.assertEqual(purchase.state, 'processing')
         # First one is a regular purchase line. Second one is free of charge.
-        self.assertEqual((purchase.lines[0].unit_price, purchase.lines[1].unit_price), (Decimal('5.0000'), Decimal('0.0000')))
+        self.assertEqual((purchase.lines[0].unit_price, purchase.lines[1].unit_price), (Decimal('20.0000'), Decimal('0.0000')))
 
         # Validate Shipments
         Move = Model.get('stock.move')
@@ -125,18 +126,45 @@ class Test(unittest.TestCase):
         for move in purchase.moves:
             incoming_move = Move(id=move.id)
             shipment.incoming_moves.append(incoming_move)
-
         shipment.save()
+        self.assertEqual((shipment.incoming_moves[0].unit_price, shipment.incoming_moves[1].unit_price), (Decimal('20.0000'), Decimal('5.0000')))
+
+        #Create a new purchase and receive another shipment inbetween so that the cost price is updated.
+        purchase2 = Purchase()
+        purchase2.party = supplier
+        purchase2.payment_term = payment_term
+        purchase2.invoice_method = 'shipment'
+        purchase_line = purchase2.lines.new()
+        purchase_line.product = product
+        purchase_line.quantity = 10.0
+        purchase_line.unit_price = Decimal('10.0000')
+        purchase2.click('quote')
+        purchase2.click('confirm')
+
+        shipment2 = ShipmentIn()
+        shipment2.supplier = supplier
+
+        for move in purchase2.moves:
+            incoming_move = Move(id=move.id)
+            shipment2.incoming_moves.append(incoming_move)
+        shipment2.save()
+        shipment2.click('receive')
+        self.assertEqual(product.cost_price, Decimal('10.000'))
+
         # First move comes from regular purchase line. Second move comes from free of charge purchase line.
         self.assertEqual(shipment.origins, purchase.rec_name)
+        self.assertEqual((shipment.incoming_moves[0].unit_price, shipment.incoming_moves[1].unit_price), (Decimal('20.0000'), Decimal('5.0000')))
         shipment.click('receive')
+        self.assertEqual((shipment.incoming_moves[0].unit_price, shipment.incoming_moves[1].unit_price), (Decimal('20.0000'), Decimal('10.0000')))
+        product.reload()
+        self.assertEqual(product.cost_price, Decimal('11.2500'))
         shipment.click('do')
-        self.assertEqual((shipment.incoming_moves[0].unit_price, shipment.incoming_moves[1].unit_price), (Decimal('5.0000'), Decimal('10.0000')))
 
         purchase.reload()
         self.assertEqual(purchase.shipment_state, 'received')
         self.assertEqual(len(purchase.shipments), 1)
 
+        # Check invoice lines, and free of charge line has not been generated.
         move = shipment.incoming_moves[0]
         free_of_charge_move = shipment.incoming_moves[1]
         self.assertEqual(len(move.invoice_lines), 1)
